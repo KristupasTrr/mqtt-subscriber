@@ -8,6 +8,7 @@
 #include "db.h"
 
 const char *host = NULL;
+const char *topic = NULL;
 int port;
 int keep_alive = 60;
 
@@ -22,6 +23,12 @@ void getopts(int argc, char** argv)
         {
             if (++count < argc) {
                 host = argv[count];
+            }
+        }
+        if (strcmp(argv[count], "-topic") == 0)
+        {
+            if (++count < argc) {
+                topic = argv[count];
             }
         }
         if (strcmp(argv[count], "-port") == 0) {
@@ -53,7 +60,7 @@ int main(int argc, char *argv[]) {
     /* Get host and port */
     getopts(argc, argv);
 
-    if (host == NULL || port == NULL) {
+    if (host == NULL || port == NULL || topic == NULL) {
         fprintf(stderr, "ERROR: Wrong arguments\n");
         return 1;
     }
@@ -82,8 +89,8 @@ int main(int argc, char *argv[]) {
     }
 
     /* Subscribe to specific topic */
+    mosquitto_subscribe(mosq, NULL, topic, 0);
     mosquitto_subscribe(mosq, NULL, "topic/print", 0);
-    mosquitto_subscribe(mosq, NULL, "topic/add", 0);
 
     /* Set message callback function */
     mosquitto_message_callback_set(mosq, on_message);

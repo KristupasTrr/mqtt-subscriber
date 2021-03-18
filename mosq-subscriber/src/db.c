@@ -79,7 +79,7 @@ int sql_add_message(char *table, char *msg) {
         fprintf(stdout, "SUCCESS: Table added\n");
     } else if (rc != 1) {
         fprintf(stderr, "ERROR: Received error while checking for table\n");
-        goto error
+        goto error;
     }
 
     char *sql = NULL;
