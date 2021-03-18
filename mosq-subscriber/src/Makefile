@@ -1,11 +1,11 @@
 BIN:=mosq-subscriber
-LDFLAGS:=-lmosquitto 
+LDFLAGS:=-lmosquitto -lsqlite3
 
 .PHONY: all clean
 
 all:$(BIN)
 
-$(BIN): mosq.c
+$(BIN): mosq.c db.c
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 clean:
