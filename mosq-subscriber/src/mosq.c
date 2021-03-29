@@ -4,16 +4,15 @@
 #include <string.h>
 #include <unistd.h>
 #include <sqlite3.h>
+#include <signal.h>
 
 #include "db.h"
+#include "uci-config.h"
 
-const char *host = NULL;
-const char *topic = NULL;
-int port;
-int keep_alive = 60;
+struct Topic *tp;
 
 /* Get and process command line options */
-void getopts(int argc, char** argv)
+void getopts(int argc, char** argv, char* host, int* port)
 {
     int count = 1;
 
@@ -22,18 +21,12 @@ void getopts(int argc, char** argv)
         if (strcmp(argv[count], "-host") == 0)
         {
             if (++count < argc) {
-                host = argv[count];
-            }
-        }
-        if (strcmp(argv[count], "-topic") == 0)
-        {
-            if (++count < argc) {
-                topic = argv[count];
+                strcpy(host, argv[count]);
             }
         }
         if (strcmp(argv[count], "-port") == 0) {
             if (++count < argc) {
-                port = atoi(argv[count]);
+                *port = atoi(argv[count]);
             }
         }
         count++;
@@ -44,27 +37,34 @@ void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_messag
     int rc;
     printf("Topic: %s\nQoS: %d\nMessage: %s\n\n", msg->topic, msg->qos, (char *)msg->payload);
 
-    if (strcmp(msg->topic,"topic/print") == 0) {
-        rc = sql_print_table("messages");
+    int k = 0;
+    while (tp[k].qos != -1) {
+        if (strcmp(msg->topic, tp[k].topic) == 0) {
+            rc = sql_add_message("messages", (char *)msg->payload, (char*)msg->topic);
+            break;
+        }
     }
-    else if (strcmp(msg->topic,"topic/add") == 0) {
-        rc = sql_add_message("messages", (char *)msg->payload);
-    }
-
 }
 
 int main(int argc, char *argv[]) {
+    char *host = (char*)malloc(sizeof(char) * 100);
+    int port;
+    int keep_alive = 60;
+
     struct mosquitto *mosq;
 	int rc;
-
+    
+    /* Pass host, topic through argumentus to getopts */
     /* Get host and port */
-    getopts(argc, argv);
+    getopts(argc, argv, host, &port);
 
-    if (host == NULL || port == NULL || topic == NULL) {
+    if (host == NULL || port == NULL) {
         fprintf(stderr, "ERROR: Wrong arguments\n");
         return 1;
     }
 
+    /* Get topics */
+    tp = get_topics();
 
     /* Always initialize lib */
     mosquitto_lib_init();
@@ -89,12 +89,20 @@ int main(int argc, char *argv[]) {
     }
 
     /* Subscribe to specific topic */
-    mosquitto_subscribe(mosq, NULL, topic, 0);
-    mosquitto_subscribe(mosq, NULL, "topic/print", 0);
-
+    if (tp != NULL) {
+        int k = 0;
+        while (tp[k].qos != -1) {
+            mosquitto_subscribe(mosq, NULL, tp[k].topic, tp[k].qos);
+            k++;
+        }
+        
+    } else {
+        fprintf(stderr, "ERROR: No topics!\n");
+    }
+    
     /* Set message callback function */
     mosquitto_message_callback_set(mosq, on_message);
-   
+
     /* Create infinite blocking loop */
     rc = mosquitto_loop_forever(mosq, -1, 1);
     if (rc != MOSQ_ERR_SUCCESS) {
@@ -107,6 +115,8 @@ int main(int argc, char *argv[]) {
 
     /* Free resources */
     mosquitto_lib_cleanup();
+    free(tp);
+    free(host);
 
     return 0;
 }

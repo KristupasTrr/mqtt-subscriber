@@ -47,7 +47,7 @@ int sql_add_table(sqlite3 *db, char *table) {
     sqlite3_stmt *stmt;
 
     char *sql = NULL;
-    asprintf(&sql, "CREATE TABLE %s (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)", table);
+    asprintf(&sql, "CREATE TABLE %s (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, topic TEXT NOT NULL, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)", table);
 
     rc = sqlite3_exec(db, sql, 0, NULL, &err_msg);
     if (rc != SQLITE_OK) {
@@ -59,7 +59,7 @@ int sql_add_table(sqlite3 *db, char *table) {
     return rc;
 }
 
-int sql_add_message(char *table, char *msg) {
+int sql_add_message(char *table, char *msg, char *topic) {
     int rc;
     char *err_msg = 0;
 
@@ -83,7 +83,7 @@ int sql_add_message(char *table, char *msg) {
     }
 
     char *sql = NULL;
-    asprintf(&sql, "INSERT INTO %s(message) VALUES('%s')", table, msg);
+    asprintf(&sql, "INSERT INTO %s(message, topic) VALUES('%s', '%s')", table, msg, topic);
 
     rc = sqlite3_exec(db, sql, 0, NULL, &err_msg);
     if (rc != SQLITE_OK) {
