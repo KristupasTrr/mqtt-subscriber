@@ -12,7 +12,7 @@
 struct Topic *tp;
 
 /* Get and process command line options */
-void getopts(int argc, char** argv, char* host, int* port)
+void getopts(int argc, char** argv, char* host, int* port, int* tls, char* ca, char* cert, char* key)
 {
     int count = 1;
 
@@ -29,6 +29,29 @@ void getopts(int argc, char** argv, char* host, int* port)
                 *port = atoi(argv[count]);
             }
         }
+        if (strcmp(argv[count], "-tls") == 0) {
+            if (++count < argc) {
+                *tls = atoi(argv[count]);
+            }
+        }
+        if (strcmp(argv[count], "-ca") == 0)
+        {
+            if (++count < argc) {
+                strcpy(ca, argv[count]);
+            }
+        }
+        if (strcmp(argv[count], "-cert") == 0)
+        {
+            if (++count < argc) {
+                strcpy(cert, argv[count]);
+            }
+        }
+        if (strcmp(argv[count], "-key") == 0)
+        {
+            if (++count < argc) {
+                strcpy(key, argv[count]);
+            }
+        }
         count++;
     }
 }
@@ -43,6 +66,7 @@ void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_messag
             rc = sql_add_message("messages", (char *)msg->payload, (char*)msg->topic);
             break;
         }
+        k++;
     }
 }
 
@@ -50,13 +74,21 @@ int main(int argc, char *argv[]) {
     char *host = (char*)malloc(sizeof(char) * 100);
     int port;
     int keep_alive = 60;
+    int tls;
+    char *cafile = (char*)malloc(sizeof(char) * 100);
+    char *certfile = (char*)malloc(sizeof(char) * 100);
+    char *keyfile = (char*)malloc(sizeof(char) * 100);
 
     struct mosquitto *mosq;
 	int rc;
     
     /* Pass host, topic through argumentus to getopts */
     /* Get host and port */
-    getopts(argc, argv, host, &port);
+    getopts(argc, argv, host, &port, &tls, cafile, certfile, keyfile);
+
+    fprintf(stdout, "CA: %s\n", cafile);
+    fprintf(stdout, "Cert: %s\n", certfile);
+    fprintf(stdout, "Key: %s\n", keyfile);
 
     if (host == NULL || port == NULL) {
         fprintf(stderr, "ERROR: Wrong arguments\n");
@@ -78,6 +110,20 @@ int main(int argc, char *argv[]) {
         fprintf(stdout, "SUCCESS: Mosquitto client instance created\n");
     }
 
+    /* If SSL provided */
+    if (tls) {
+        rc = mosquitto_tls_set(mosq, cafile, NULL, certfile, keyfile, NULL);
+        if (rc != MOSQ_ERR_SUCCESS) {
+            if (rc == MOSQ_ERR_INVAL) {
+                fprintf(stderr, "ERROR: Invalid SSL input parameters\n");
+            } else if (rc == MOSQ_ERR_NOMEM) {
+                fprintf(stderr, "ERROR: Out of memory\n");
+            }
+            fprintf(stderr, "ERROR: Can not configure SSL\n");
+            return 1;
+        }
+    }
+
     /* Connect to broker */
     rc = mosquitto_connect(mosq, host, port, keep_alive);
     if (rc != MOSQ_ERR_SUCCESS) {
@@ -92,7 +138,10 @@ int main(int argc, char *argv[]) {
     if (tp != NULL) {
         int k = 0;
         while (tp[k].qos != -1) {
-            mosquitto_subscribe(mosq, NULL, tp[k].topic, tp[k].qos);
+            rc = mosquitto_subscribe(mosq, NULL, tp[k].topic, tp[k].qos);
+            if (rc != MOSQ_ERR_SUCCESS) {
+                fprintf(stderr, "ERROR: Can not subscribe topic (%s)\n", tp[k].topic);
+            }
             k++;
         }
         
@@ -106,8 +155,8 @@ int main(int argc, char *argv[]) {
     /* Create infinite blocking loop */
     rc = mosquitto_loop_forever(mosq, -1, 1);
     if (rc != MOSQ_ERR_SUCCESS) {
-        mosquitto_destroy(mosq);
         fprintf(stderr, "ERROR: %s\n", mosquitto_strerror(rc));
+        mosquitto_destroy(mosq);
         return 1;
     } else {
         fprintf(stdout, "SUCCESS: Loop started\n");

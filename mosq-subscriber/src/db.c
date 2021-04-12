@@ -80,6 +80,8 @@ int sql_add_message(char *table, char *msg, char *topic) {
     } else if (rc != 1) {
         fprintf(stderr, "ERROR: Received error while checking for table\n");
         goto error;
+    } else {
+        fprintf(stdout, "INFO: Table exists\n");
     }
 
     char *sql = NULL;
@@ -98,46 +100,3 @@ error:
 
     return rc;
 }
-
-int sql_print_table(char *table) {
-    int rc;
-    sqlite3 *db = sql_open(db_path);
-    sqlite3_stmt *stmt;
-
-    char *sql = NULL;
-    asprintf(&sql, "SELECT * FROM %s;", table);
-
-    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "ERROR: Can't prepare stmt\n");
-        goto error;
-    }
-
-    while(sqlite3_step(stmt) != SQLITE_DONE) {
-        int num_cols = sqlite3_column_count(stmt);
-
-        for (int i = 0; i < num_cols; i++) {
-            switch(sqlite3_column_type(stmt, i)) {
-                case (SQLITE_TEXT):
-                    printf("%s, ", sqlite3_column_text(stmt, i));
-                    break;
-                case (SQLITE_INTEGER):
-                    printf("%d, ", sqlite3_column_int(stmt, i));
-                    break;
-                case (SQLITE_FLOAT):
-                    printf("%g, ", sqlite3_column_double(stmt, i));
-                    break;
-            }
-        }
-        printf("\n");
-    }
-    
-    
-
-error:
-    free(sql);
-    sqlite3_finalize(stmt);
-    sqlite3_close(db);
-
-    return rc;
-}   
