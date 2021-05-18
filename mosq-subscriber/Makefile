@@ -10,7 +10,7 @@ define Package/mosq-subscriber
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=Mosquitto Subscriber Test
-	DEPENDS:=+libmosquitto +libsqlite3 +libuci
+	DEPENDS:=+libmosquitto +libsqlite3 +libuci +libjson-c +libcurl
 endef
 
 define Package/mosq-subscriber/description

@@ -7,7 +7,6 @@ char *db_path = "/etc/config/mqtt-msg.db";
 sqlite3 *sql_open(char *dbpath) {
     sqlite3 *db;
     int rc;
-
     rc = sqlite3_open(dbpath, &db);
     if (rc)
         fprintf(stderr, "ERROR: Can't open database: %s" , sqlite3_errmsg(db));
@@ -67,10 +66,10 @@ int sql_add_message(char *table, char *msg, char *topic) {
     sqlite3_stmt *stmt = NULL;
 
 
-    rc = sql_check_table_existance(db, "messages");
+    rc = sql_check_table_existance(db, table);
     if (rc == 0) {
         fprintf(stdout, "INFO: Table does not exist\n");
-        rc = sql_add_table(db, "messages");
+        rc = sql_add_table(db, table);
         if (rc != SQLITE_OK) {
             // print error
             fprintf(stderr, "ERROR: Could not add table\n");

@@ -1,6 +1,7 @@
 map = Map("mosq-subscriber")
 
 st = map:section(TypedSection, "topic", "Topics")
+st.template = "mosq-sub/topics"
 st.addremove = true
 st.anonymous = true
 st.novaluetext = translate("There are no topics created yet.")

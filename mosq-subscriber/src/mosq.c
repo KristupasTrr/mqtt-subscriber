@@ -5,11 +5,15 @@
 #include <unistd.h>
 #include <sqlite3.h>
 #include <signal.h>
+#include <json-c/json.h>
 
+#include "email.h"
+//#include "uci-config.h"
 #include "db.h"
-#include "uci-config.h"
 
 struct Topic *tp;
+struct Event *events;
+struct Email *emails;
 
 /* Get and process command line options */
 void getopts(int argc, char** argv, char* host, int* port, int* tls, char* ca, char* cert, char* key)
@@ -56,17 +60,162 @@ void getopts(int argc, char** argv, char* host, int* port, int* tls, char* ca, c
     }
 }
 
+struct Email *get_email_by_name(const char* name) {
+    int k = 0;
+    while (emails[k].secure_conn != -1 && emails != NULL) {
+        if (strcmp(name, emails[k].name) == 0) {
+            return &emails[k];
+        }
+        k++;
+    }
+    return NULL;
+}
+
+/*
+  1: ==
+  2: !=
+  3: >
+  4: >=
+  5: <
+  6: <=
+*/
+void execute_topic_events(const char* topic, const char* key, const char* value, enum json_type value_type) {
+    int k = 0;
+    while (events[k].value_type != -1 && events != NULL) {
+        if (strcmp(topic, events[k].topic) == 0 && strcmp(key, events[k].key) == 0) {
+            // execute event
+            char* msg = NULL;
+
+            // get email
+            struct Email *email = get_email_by_name(events[k].account);
+            if (email == NULL) {
+                fprintf(stderr, "ERROR: NO EMAIL FOUND\n");
+                return;
+            }
+            // if value is string
+            if (events[k].value_type == 2 && value_type == json_type_string) {
+                // ==
+                if (events[k].comparison_type == 1) {
+                    if (strcmp(value, events[k].comparison_value) == 0) {
+                        // send email
+                        asprintf(&msg, "EVENT: EQUAL STRINGS\nEvent value: %s\nReceived value: %s", events[k].comparison_value, value);
+                        send_email(msg, events[k].email, email);
+                    }
+                }
+                // !=
+                else if (events[k].comparison_type == 2) {
+                    if (strcmp(value, events[k].comparison_value) != 0) {
+                        // send email
+                        asprintf(&msg, "EVENT: NOT EQUAL STRINGS\nEvent value: %s\nReceived value: %s", events[k].comparison_value, value);
+                        send_email(msg, events[k].email, email);
+                    }
+                }
+            }
+
+            // if value is double
+            else if(events[k].value_type == 1 && (value_type == json_type_int || value_type == json_type_double)) {
+                double event_value_converted = atof(events[k].comparison_value);
+                double received_value_converted = atof(value);
+
+                // ==
+                if (events[k].comparison_type == 1) {
+                    if (received_value_converted == event_value_converted) {
+                        asprintf(&msg, "EVENT: EQUAL DECIMALS\nEvent value: %f\nReceived value: %f", event_value_converted, received_value_converted);
+                        send_email(msg, events[k].email, email);
+                    }
+                }
+                // !=
+                else if (events[k].comparison_type == 2) {
+                    if (received_value_converted != event_value_converted) {
+                        asprintf(&msg, "EVENT: NOT EQUAL DECIMALS\nEvent value: %f\nReceived value: %f", event_value_converted, received_value_converted);
+                        send_email(msg, events[k].email, email);
+                    }
+                }
+                // >
+                else if (events[k].comparison_type == 3) {
+                    if (received_value_converted > event_value_converted) {
+                        // send email
+                        asprintf(&msg, "EVENT: RECEIVED VALUE DECIMAL > EVENT VALUE DECIMAL\nEvent value: %f\nReceived value: %f", event_value_converted, received_value_converted);
+                        send_email(msg, events[k].email, email);
+                    }
+                }
+
+                // >=
+                else if (events[k].comparison_type == 4) {
+                    if (received_value_converted >= event_value_converted) {
+                        // send email
+                        asprintf(&msg, "EVENT: RECEIVED VALUE DECIMAL >= EVENT VALUE DECIMAL\nEvent value: %f\nReceived value: %f", event_value_converted, received_value_converted);
+                        send_email(msg, events[k].email, email);
+                    }
+                }
+
+                // <
+                else if (events[k].comparison_type == 5) {
+                    if (received_value_converted < event_value_converted) {
+                        // send email
+                        asprintf(&msg, "EVENT: RECEIVED VALUE DECIMAL < EVENT VALUE DECIMAL\nEvent value: %f\nReceived value: %f", event_value_converted, received_value_converted);
+                        send_email(msg, events[k].email, email);
+                    }
+                }
+
+                // <=
+                else if (events[k].comparison_type == 6) {
+                    if (received_value_converted <= event_value_converted) {
+                        // send email
+                        asprintf(&msg, "EVENT: RECEIVED VALUE DECIMAL <= EVENT VALUE DECIMAL\nEvent value: %f\nReceived value: %f", event_value_converted, received_value_converted);
+                        send_email(msg, events[k].email, email);
+                    }
+                }
+
+            }
+            free(msg);
+        }
+        k++;
+    }
+}
+
+bool check_for_topic(const char* topic) {
+    int k = 0;
+    while (tp[k].qos != -1 && tp != NULL) {
+        if (strcmp(topic, tp[k].topic) == 0) {
+            return true;
+        }
+        k++;
+    }
+    return false;
+}
+
 void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg) {
     int rc;
     printf("Topic: %s\nQoS: %d\nMessage: %s\n\n", msg->topic, msg->qos, (char *)msg->payload);
 
-    int k = 0;
-    while (tp[k].qos != -1) {
-        if (strcmp(msg->topic, tp[k].topic) == 0) {
-            rc = sql_add_message("messages", (char *)msg->payload, (char*)msg->topic);
-            break;
+    bool topic_exists = check_for_topic(msg->topic);
+
+    // add to message database
+    sql_add_message("messages", (char *)msg->payload, msg->topic);
+
+    if (topic_exists) {
+
+        struct json_object *jobj;
+        // enum json_tokener_error jerr = json_tokener_success;
+
+        jobj = json_tokener_parse((char *)msg->payload);
+
+        const char* key = json_object_get_string(json_object_object_get(jobj, "key"));
+        const char* value = json_object_get_string(json_object_object_get(jobj, "value"));
+        enum json_type value_type = json_object_get_type(json_object_object_get(jobj, "value"));
+
+
+        if (key == NULL || value == NULL) {
+          fprintf(stderr, "ERROR: Key or value is NULL\n");
+          return;
         }
-        k++;
+
+        printf("key: %s\n", key);
+        printf("value: %s\n", value);
+        printf("value_type: %d\n", value_type);
+
+        execute_topic_events(msg->topic, key, value, value_type);
     }
 }
 
@@ -80,8 +229,8 @@ int main(int argc, char *argv[]) {
     char *keyfile = (char*)malloc(sizeof(char) * 100);
 
     struct mosquitto *mosq;
-	int rc;
-    
+    int rc;
+
     /* Pass host, topic through argumentus to getopts */
     /* Get host and port */
     getopts(argc, argv, host, &port, &tls, cafile, certfile, keyfile);
@@ -95,8 +244,10 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    /* Get topics */
+    /* Get topics, events and emails */
     tp = get_topics();
+    events = get_events();
+    emails = get_emails();
 
     /* Always initialize lib */
     mosquitto_lib_init();
@@ -144,11 +295,11 @@ int main(int argc, char *argv[]) {
             }
             k++;
         }
-        
+
     } else {
         fprintf(stderr, "ERROR: No topics!\n");
     }
-    
+
     /* Set message callback function */
     mosquitto_message_callback_set(mosq, on_message);
 
@@ -165,6 +316,8 @@ int main(int argc, char *argv[]) {
     /* Free resources */
     mosquitto_lib_cleanup();
     free(tp);
+    free(events);
+    free(emails);
     free(host);
 
     return 0;
